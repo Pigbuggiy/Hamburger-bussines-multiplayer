@@ -118,16 +118,24 @@
             padding: 5px 10px;
             background-color: #3498db;
         }
+        .logout-btn {
+            background-color: #c0392b;
+            font-size: 14px;
+            padding: 8px 15px;
+            margin-top: 20px;
+        }
+        .logout-btn:hover { background-color: #e74c3c; }
     </style>
 </head>
 <body>
 
     <div id="login-screen" class="screen active">
         <h1>Бургер Кликер 🍔</h1>
-        <p>Введи свой никнейм (до 12 символов):</p>
+        <p>Введи свой никнейм и пароль:</p>
         <input type="text" id="nickname-input" maxlength="12" placeholder="Твой ник">
+        <input type="password" id="password-input" maxlength="20" placeholder="Пароль">
         <button onclick="login()">Играть</button>
-        <p id="login-error" style="color:#e74c3c; display:none;">Никнейм не может быть пустым!</p>
+        <p id="login-error" style="color:#e74c3c; display:none;"></p>
     </div>
 
     <div id="menu-screen" class="screen">
@@ -135,6 +143,7 @@
         <p>Монеты: <span id="menu-coins">0</span> 🪙</p>
         <button onclick="showScreen('sp-screen')">Одиночная игра</button>
         <button onclick="showScreen('lobby-screen')">Мультиплеер (с другом)</button>
+        <button class="logout-btn" onclick="logout()">Выйти из аккаунта</button>
     </div>
 
     <div id="sp-screen" class="screen">
@@ -206,6 +215,44 @@
     let safeCoins = 0;
     let iAmReady = false;
     let opponentReady = false;
+    let autoClickerInterval = null;
+
+    // Функция сохранения данных
+    function saveData() {
+        if (!myNickname) return;
+        let accounts = JSON.parse(localStorage.getItem('burgerClickerData')) || {};
+        if (accounts[myNickname]) {
+            accounts[myNickname].coins = coins;
+            accounts[myNickname].clickPower = clickPower;
+            accounts[myNickname].clickUpgradeCost = clickUpgradeCost;
+            accounts[myNickname].autoClickerCost = autoClickerCost;
+            accounts[myNickname].autoClickers = autoClickers;
+            localStorage.setItem('burgerClickerData', JSON.stringify(accounts));
+        }
+    }
+
+    // Автоматическая загрузка сессии при обновлении страницы
+    window.onload = function() {
+        let savedSession = localStorage.getItem('burgerActiveUser');
+        if (savedSession) {
+            let accounts = JSON.parse(localStorage.getItem('burgerClickerData')) || {};
+            if (accounts[savedSession]) {
+                myNickname = savedSession;
+                coins = accounts[myNickname].coins || 0;
+                clickPower = accounts[myNickname].clickPower || 1;
+                clickUpgradeCost = accounts[myNickname].clickUpgradeCost || 50;
+                autoClickerCost = accounts[myNickname].autoClickerCost || 100;
+                autoClickers = accounts[myNickname].autoClickers || 0;
+                
+                if (autoClickers > 0) {
+                    startAutoClicker();
+                }
+
+                safeSetText('menu-nickname', myNickname);
+                showScreen('menu-screen');
+            }
+        }
+    }
 
     function showScreen(screenId) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -223,13 +270,78 @@
 
     function login() {
         let input = document.getElementById('nickname-input').value.trim();
-        if (input.length === 0) {
-            document.getElementById('login-error').style.display = 'block';
+        let passInput = document.getElementById('password-input').value.trim();
+        let errorMsg = document.getElementById('login-error');
+        
+        if (input.length === 0 || passInput.length === 0) {
+            errorMsg.textContent = 'Никнейм и пароль не могут быть пустыми!';
+            errorMsg.style.display = 'block';
             return;
         }
-        myNickname = sanitize(input).substring(0, 12); 
+
+        let safeName = sanitize(input).substring(0, 12);
+        let accounts = JSON.parse(localStorage.getItem('burgerClickerData')) || {};
+
+        if (accounts[safeName]) {
+            // Если аккаунт есть, проверяем пароль
+            if (accounts[safeName].password !== passInput) {
+                errorMsg.textContent = 'Неверный пароль или никнейм уже занят!';
+                errorMsg.style.display = 'block';
+                return;
+            }
+            // Загружаем данные
+            coins = accounts[safeName].coins || 0;
+            clickPower = accounts[safeName].clickPower || 1;
+            clickUpgradeCost = accounts[safeName].clickUpgradeCost || 50;
+            autoClickerCost = accounts[safeName].autoClickerCost || 100;
+            autoClickers = accounts[safeName].autoClickers || 0;
+        } else {
+            // Создаем новый аккаунт
+            accounts[safeName] = {
+                password: passInput,
+                coins: 0,
+                clickPower: 1,
+                clickUpgradeCost: 50,
+                autoClickerCost: 100,
+                autoClickers: 0
+            };
+            localStorage.setItem('burgerClickerData', JSON.stringify(accounts));
+        }
+
+        if (autoClickers > 0) {
+            startAutoClicker();
+        }
+
+        // Сохраняем активного пользователя
+        localStorage.setItem('burgerActiveUser', safeName);
+
+        errorMsg.style.display = 'none';
+        myNickname = safeName; 
         safeSetText('menu-nickname', myNickname);
         showScreen('menu-screen');
+    }
+
+    function logout() {
+        localStorage.removeItem('burgerActiveUser');
+        if (autoClickerInterval) {
+            clearInterval(autoClickerInterval);
+            autoClickerInterval = null;
+        }
+        myNickname = "";
+        coins = 0; clickPower = 1; clickUpgradeCost = 50; autoClickerCost = 100; autoClickers = 0;
+        document.getElementById('nickname-input').value = "";
+        document.getElementById('password-input').value = "";
+        showScreen('login-screen');
+    }
+
+    function startAutoClicker() {
+        if (!autoClickerInterval) {
+            autoClickerInterval = setInterval(() => { 
+                coins += autoClickers; 
+                saveData(); 
+                updateUI(); 
+            }, 1000);
+        }
     }
 
     function updateUI() {
@@ -243,6 +355,7 @@
 
     function clickBurger() {
         coins += clickPower;
+        saveData(); // Сохраняем после клика
         updateUI();
     }
 
@@ -251,6 +364,7 @@
             coins -= clickUpgradeCost;
             clickPower++;
             clickUpgradeCost = Math.floor(clickUpgradeCost * 1.5);
+            saveData(); // Сохраняем после покупки
             updateUI();
         }
     }
@@ -260,9 +374,8 @@
             coins -= autoClickerCost;
             autoClickers++;
             autoClickerCost = Math.floor(autoClickerCost * 1.5);
-            if (autoClickers === 1) {
-                setInterval(() => { coins += autoClickers; updateUI(); }, 1000);
-            }
+            startAutoClicker();
+            saveData(); // Сохраняем после покупки
             updateUI();
         }
     }
@@ -283,7 +396,6 @@
             isHost = true;
         });
 
-        // Хост просто ждет подключения
         peer.on('connection', (connection) => {
             conn = connection;
             setupConnectionEvents();
@@ -340,7 +452,6 @@
         peer.on('open', () => {
             conn = peer.connect(code);
             
-            // Клиент дожидается открытия канала и первым отправляет свой ник
             conn.on('open', () => {
                 isHost = false;
                 setupConnectionEvents();
@@ -354,19 +465,15 @@
         });
     }
 
-    // Обновленная логика приема сообщений
     function setupConnectionEvents() {
         conn.on('data', (data) => {
             if (data.type === 'init') {
                 opponentName = sanitize(data.name);
                 
-                // Если я Хост, значит я только что получил ник от Клиента. 
-                // Отвечаю ему своим ником.
                 if (isHost) {
                     conn.send({ type: 'init', name: myNickname });
                 }
                 
-                // Запускаем игру у обоих
                 startMpGame();
             } else if (data.type === 'click') {
                 safeCoins++;
@@ -423,6 +530,7 @@
             setTimeout(() => {
                 let share = Math.floor(safeCoins / 2);
                 coins += share;
+                saveData(); // Сохраняем монеты после взлома сейфа
                 alert(`Сейф вскрыт! Общий куш: ${safeCoins}. Твоя доля: ${share} 🪙`);
                 resetMpAndGoMenu();
             }, 500);
